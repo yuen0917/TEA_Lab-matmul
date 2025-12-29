@@ -1,17 +1,16 @@
 `timescale 1ns / 1ps
 
-
 module controller#(
     parameter DATA_WIDTH_I = 32,
     parameter DATA_WIDTH_O = 64,
-    parameter ADDR_WIDTH = 32,
-    parameter VETOR_LEN = 8,
-    parameter NUM_GROUP = 257
+    parameter ADDR_WIDTH   = 32,
+    parameter VETOR_LEN    = 8,
+    parameter NUM_GROUP    = 257
 )(
-    input clk, 
-    input rst_n,
-    input start,
-    
+    input      clk,
+    input      rst_n,
+    input      start,
+
     output reg en_pe,
     // read data bram
     (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 BRAM_PORTA CLK" *)
@@ -30,7 +29,7 @@ module controller#(
     // input wire [31:0] bram_dout_a,
 
 
-    // write  data bram 0 
+    // write  data bram 0
     (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 BRAM_PORTB CLK" *)
     output  wire        bram_clk_b,
     (* X_INTERFACE_INFO = "xilinx.com:interface:bram:1.0 BRAM_PORTB RST" *)
@@ -63,283 +62,238 @@ module controller#(
     // input wire [31:0] bram_dout_c,
     output valid,
     output finish
+);
+    integer i;
+    reg [3:0] count; // count from 0 to 7
+    reg [8:0] outer_count; // count from 0 to 256
+    reg [8:0] temp_outer_count [0:1];
+    reg [3:0] state, next_state;
 
-    );
-integer i;
-reg [3:0] count; // count from 0 to 7
-reg [8:0] outer_count; // count from 0 to 256
-reg [8:0] temp_outer_count [0:1];
-reg [3:0] state, next_state;
+    localparam IDLE         = 4'd0;
+    localparam READY        = 4'd1;
+    localparam COMPUTE      = 4'd2;
+    localparam WRITE_BACK_0 = 4'd3;
+    localparam WRITE_BACK_1 = 4'd4;
+    localparam SHIFT        = 4'd5;
+    localparam FIN          = 4'd6;
 
-localparam IDLE = 4'd0;
-localparam READY = 4'd1;
-localparam COMPUTE = 4'd2;
-localparam WRITE_BACK_0 = 4'd3;
-localparam WRITE_BACK_1 = 4'd4;
-localparam SHIFT = 4'd5;
-localparam FIN = 4'd6;
+    reg [ 1:0] en_b_temp;
+    reg [ 7:0] we_b_temp [0:1];
+    reg [31:0] addr_b_temp [0:1];
+    reg [ 1:0] en_c_temp;
+    reg [ 7:0] we_c_temp [0:1];
+    reg [31:0] addr_c_temp [0:1];
 
-reg [1:0] en_b_temp;
-reg [7:0] we_b_temp [0:1];
-reg [31:0] addr_b_temp [0:1];
-reg [1:0] en_c_temp;
-reg [7:0] we_c_temp [0:1];
-reg [31:0] addr_c_temp [0:1];
+    assign bram_clk_a = clk;
+    assign bram_rst_a = ~rst_n;
+    assign bram_clk_b = clk;
+    assign bram_rst_b = ~rst_n;
+    assign bram_clk_c = clk;
+    assign bram_rst_c = ~rst_n;
+    reg en_pe_temp, en_pe_temp_1; // delay en_pe by 2 clk cycle
+    assign valid = (state == SHIFT);
 
-assign bram_clk_a = clk;
-assign bram_rst_a = ~rst_n;
-assign bram_clk_b = clk;
-assign bram_rst_b = ~rst_n;
-assign bram_clk_c = clk;
-assign bram_rst_c = ~rst_n;
-reg en_pe_temp, en_pe_temp_1; // delay en_pe by 2 clk cycle
-assign valid = (state == SHIFT);
-always @(posedge clk or negedge rst_n)
-begin
-    if (!rst_n)
-    begin
-        en_pe <= 0;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            en_pe <= 0;
+        end else begin
+            en_pe <= en_pe_temp;
+        end
     end
-    else
-    begin
-        en_pe <= en_pe_temp;
-        
 
+    // shift  2 cycle for output bram address, enable, write enable
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            //en_b_temp[1] <= 1'b0;
+            // we_b_temp[1] <= 1'b0;
+            // addr_b_temp[1] <= 32'b0;
+            // //en_c_temp[1] <= 1'b0;
+            // we_c_temp[1] <= 1'b0;
+            // addr_c_temp[1] <= 32'b0;
+
+            //bram_en_b <= 0;
+            bram_we_b <= 0;
+            bram_addr_b <= 0;
+            //bram_en_c <= 0;
+            bram_we_c <= 0;
+            bram_addr_c <= 0;
+        end else begin
+            // en_b_temp[1] <= en_b_temp[0];
+            // we_b_temp[1] <= we_b_temp[0];
+            // addr_b_temp[1] <= addr_b_temp[0];
+
+            // en_c_temp[1] <= en_c_temp[0];
+            // we_c_temp[1] <= we_c_temp[0];
+            // addr_c_temp[1] <= addr_c_temp[0];
+
+            //bram_en_b <= en_b_temp[1];
+            bram_we_b <= we_b_temp[0];
+            bram_addr_b <= addr_b_temp[0];
+
+            //bram_en_c <= en_c_temp[1];
+            bram_we_c <= we_c_temp[0];
+            bram_addr_c <= addr_c_temp[0];
+        end
     end
-end
 
-// shift  2 cycle for output bram address, enable, write enable
-always @(posedge clk or negedge rst_n)
-begin
-    if (!rst_n)
-    begin
-        //en_b_temp[1] <= 1'b0;
-        // we_b_temp[1] <= 1'b0;
-        // addr_b_temp[1] <= 32'b0;
-        // //en_c_temp[1] <= 1'b0;
-        // we_c_temp[1] <= 1'b0;
-        // addr_c_temp[1] <= 32'b0;
-
-        //bram_en_b <= 0;
-        bram_we_b <= 0;
-        bram_addr_b <= 0;
-        //bram_en_c <= 0;
-        bram_we_c <= 0;
-        bram_addr_c <= 0;
-        
-
+    // start FSM
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state <= IDLE;
+        end else begin
+            state <= next_state;
+        end
     end
-    else begin
-        // en_b_temp[1] <= en_b_temp[0];
-        // we_b_temp[1] <= we_b_temp[0];
-        // addr_b_temp[1] <= addr_b_temp[0];
 
-        // en_c_temp[1] <= en_c_temp[0];
-        // we_c_temp[1] <= we_c_temp[0];
-        // addr_c_temp[1] <= addr_c_temp[0];
-
-        //bram_en_b <= en_b_temp[1];
-        bram_we_b <= we_b_temp[0];
-        bram_addr_b <= addr_b_temp[0];
-
-        //bram_en_c <= en_c_temp[1];
-        bram_we_c <= we_c_temp[0];
-        bram_addr_c <= addr_c_temp[0];
-
+    always @(*) begin
+        case (state)
+            IDLE:
+                next_state = start ? READY : IDLE;
+            READY:
+                next_state = COMPUTE;                                             // prepare for compute first group of data
+            COMPUTE:
+                next_state = (count == VETOR_LEN - 1) ? WRITE_BACK_0 : COMPUTE;   // count == 8-1 change state
+            WRITE_BACK_0:                                                         // compute last data, and write baoutput ck first output data
+                next_state = WRITE_BACK_1;
+            WRITE_BACK_1:                                                         // write back second output data
+                next_state = SHIFT;
+            SHIFT:                                                                // prepare for next group of data
+                next_state = (outer_count == 256) ? FIN : COMPUTE;
+            FIN:
+                next_state = IDLE;
+            default:
+                next_state = IDLE;
+        endcase
     end
-end
+    // end FSM
+    assign finish = (state == FIN);   // finish signal for one cycle pulse width
 
-// start FSM
-always @(posedge clk or negedge rst_n)
-begin
-    if (!rst_n)
-    begin
-        state <= IDLE;
-    end
-    else
-    begin
-        state <= next_state;
-    end
-end
-always @(*)
-begin
-    case (state)
-        IDLE:
-            next_state = start ? READY : IDLE;
-        READY:
-            next_state = COMPUTE;                                             // prepare for compute first group of data
-        COMPUTE:
-            next_state = (count == VETOR_LEN - 1) ? WRITE_BACK_0 : COMPUTE;   // count == 8-1 change state 
-        WRITE_BACK_0:                                                         // compute last data, and write baoutput ck first output data
-            next_state = WRITE_BACK_1;   
-        WRITE_BACK_1:                                                         // write back second output data
-            next_state = SHIFT;    
-        SHIFT:                                                                // prepare for next group of data
-            next_state = (outer_count == 256) ? FIN : COMPUTE;
-        FIN:
-            next_state = IDLE;
-        default:
-            next_state = IDLE;
-    endcase
-end
-// end FSM
-assign finish = (state == FIN);   // finish signal for one cycle pulse width
-// small counter 
-always @(posedge clk or negedge rst_n)
-begin
-    if (!rst_n)
-    begin
-        count <= 0;
-    end
-    else if (state == COMPUTE)begin
-        // if (count == VETOR_LEN - 1)
-        //     count <= 0;
-        // else
+    // small counter
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            count <= 0;
+        end else if (state == COMPUTE) begin
+            // if (count == VETOR_LEN - 1)
+            //     count <= 0;
+            // else
             count <= count + 1;
+        end else begin
+            count <= 0;
+        end
     end
-    else begin
-        count <= 0;
+
+
+    // large counter
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            outer_count <= 0;
+        end else if (state == IDLE) begin
+            outer_count <= 0;
+        end else if (state == WRITE_BACK_0) begin
+            outer_count <= outer_count + 1;
+        end
     end
-end
 
-
-// large counter
-always @(posedge clk or negedge rst_n)
-begin
-    if (!rst_n)
-    begin
-        outer_count <= 0;
-
+    // shift large counter for 1 clk cycle
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            temp_outer_count[0] <= 0;
+            temp_outer_count[1] <= 0;
+        end else begin
+            temp_outer_count[0] <= outer_count;
+            temp_outer_count[1] <= temp_outer_count[0];
+        end
     end
-    else if (state == IDLE) begin
-        outer_count <= 0;
+    assign bram_addr_a = (count << 2) + (outer_count << 5);    // address of input data bram and weight bram
+
+    always @(*) begin
+        addr_b_temp[0] = temp_outer_count[1] << 3;
     end
-    else if (state == WRITE_BACK_0)
-    begin
-        outer_count <= outer_count + 1;
+
+    always @(*) begin
+        addr_c_temp[0] = temp_outer_count[1] << 3;
     end
-    
-end
-// shift large counter for 1 clk cycle 
-always @(posedge clk or negedge rst_n)
-begin
-    if (!rst_n)
-    begin
-        temp_outer_count[0] <= 0;
-        temp_outer_count[1] <= 0;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            en_pe_temp   <= 0;
+            bram_en_a    <= 0;
+            bram_we_a    <= 0;
+
+            bram_en_b    <= 0;
+            we_b_temp[0] <= 0;
+
+            bram_en_c    <= 0;
+            we_c_temp[0] <= 0;
+            //valid <= 0;
+
+        end else if (state == IDLE) begin
+            en_pe_temp   <= 0;
+            bram_en_a    <= 0;
+            bram_we_a    <= 0;
+
+            bram_en_b    <= 0;
+            we_b_temp[0] <= 0;
+
+            bram_en_c    <= 0;
+            we_c_temp[0] <= 0;
+        end else if (state == READY) begin
+            en_pe_temp   <= 0;
+            bram_en_a    <= 1;
+            bram_we_a    <= 4'b0;
+
+            bram_en_b    <= 1;    /// 0
+            we_b_temp[0] <= 8'b0;
+
+            bram_en_c    <= 1;  // 0
+            we_c_temp[0] <= 8'b0;
+            //valid <= 1;
+
+        end else if (state == COMPUTE) begin
+            en_pe_temp   <= 1;
+            bram_en_a    <= 1;
+            bram_we_a    <= 4'b0;
+
+            bram_en_b    <= 1;     // 0
+            we_b_temp[0] <= 8'b0;
+
+            bram_en_c    <= 1;    // 0
+            we_c_temp[0] <= 8'b0;
+            //valid <= 0;
+
+        end else if (state == WRITE_BACK_0) begin
+            en_pe_temp   <= 0;
+            bram_en_a    <= 1;
+            bram_we_a    <= 4'b0;
+
+            bram_en_b    <= 1;
+            we_b_temp[0] <= 8'b1111_1111;
+
+            bram_en_c    <= 1;
+            we_c_temp[0] <= 8'b0;
+
+        end else if (state == WRITE_BACK_1) begin
+            en_pe_temp   <= 0;
+            bram_en_a    <= 1;
+            bram_we_a    <= 4'b0;
+
+            bram_en_b    <= 1;
+            we_b_temp[0] <= 4'b0;
+
+            bram_en_c    <= 1;
+            we_c_temp[0] <= 8'b1111_1111;
+
+        end else if (state == SHIFT) begin
+            en_pe_temp   <= 0;
+            bram_en_a    <= 1;
+            bram_we_a    <= 4'b0;
+
+            bram_en_b    <= 1;    // 0
+            we_b_temp[0] <= 8'b0;
+
+            bram_en_c    <= 1;    // 0
+            we_c_temp[0] <= 8'b0;
+        end
     end
-    else 
-    begin
-        temp_outer_count[0] <= outer_count;
-        temp_outer_count[1] <= temp_outer_count[0];
-    end
-end
-assign bram_addr_a = (count << 2) + (outer_count << 5);    // address of input data bram and weight bram
-
-always @(*)
-begin
-    addr_b_temp[0] = temp_outer_count[1] << 3;
-end
-always @(*)
-begin
-    addr_c_temp[0] = temp_outer_count[1] << 3;
-end
-
-always @(posedge clk or negedge rst_n)
-begin
-    if (!rst_n)
-    begin
-        en_pe_temp <= 0;
-        bram_en_a <= 0;
-        bram_we_a <= 0;
-
-        bram_en_b <= 0;
-        we_b_temp[0] <= 0;
-
-        bram_en_c <= 0;
-        we_c_temp[0] <= 0;
-        //valid <= 0;
-
-    end
-    else if (state == IDLE)
-    begin
-        en_pe_temp <= 0;
-        bram_en_a <= 0;
-        bram_we_a <= 0;
-
-        bram_en_b <= 0;
-        we_b_temp[0] <= 0;
-
-        bram_en_c <= 0;
-        we_c_temp[0] <= 0;
-    end
-    else if (state == READY)
-    begin
-        en_pe_temp <= 0;
-        bram_en_a <= 1;
-        bram_we_a <= 4'b0;
-
-        bram_en_b <= 1;    /// 0 
-        we_b_temp[0] <= 8'b0;
-
-        bram_en_c <= 1;  // 0
-        we_c_temp[0] <= 8'b0;
-        //valid <= 1;
-
-    end
-    else if (state == COMPUTE)
-    begin
-        en_pe_temp <= 1;
-        bram_en_a <= 1;
-        bram_we_a <= 4'b0;
-
-        bram_en_b <= 1;     // 0
-        we_b_temp[0] <= 8'b0;
-
-        bram_en_c <= 1;    // 0
-        we_c_temp[0] <= 8'b0;
-        //valid <= 0;
-
-    end
-    else if (state == WRITE_BACK_0)
-    begin
-        en_pe_temp <= 0;
-        bram_en_a <= 1;
-        bram_we_a <= 4'b0;
-
-        bram_en_b <= 1;
-        we_b_temp[0] <= 8'b1111_1111;
-
-        bram_en_c <= 1;
-        we_c_temp[0] <= 8'b0;
-
-    end
-    else if (state == WRITE_BACK_1)
-    begin
-        en_pe_temp <= 0;
-        bram_en_a <= 1;
-        bram_we_a <= 4'b0;
-
-        bram_en_b <= 1;
-        we_b_temp[0] <= 4'b0;
-
-        bram_en_c <= 1;
-        we_c_temp[0] <= 8'b1111_1111;
-
-    end
-    else if (state == SHIFT)
-    begin
-        en_pe_temp <= 0;
-        bram_en_a <= 1;
-        bram_we_a <= 4'b0;
-
-        bram_en_b <= 1;    // 0
-        we_b_temp[0] <= 8'b0;
-
-        bram_en_c <= 1;    // 0
-        we_c_temp[0] <= 8'b0;
-
-    end
-end
 
 endmodule
