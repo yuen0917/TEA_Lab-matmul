@@ -16,7 +16,14 @@
 // Revision:
 // Revision 0.01 - File Created
 // Additional Comments:
-//
+//   Top-level datapath integrating BRAM interfaces, controller, and compute core.
+//   - Reads complex inputs (R0/I0, R1/I1) and complex weights (WR/WI) from 32-bit BRAMs.
+//   - Performs group-based complex MAC accumulation using two_pe (two chained PEs).
+//   - Writes 64-bit complex accumulated results to output BRAMs (R0/I0, R1/I1).
+//   - start triggers computation after input/weight BRAMs are populated.
+//   - finish pulses for one clock cycle when all groups are completed.
+//   Note: External BRAM ports are exposed as "Port B" for each BRAM (for system access),
+//         while internal computation uses "Port A" controlled by the controller.
 //////////////////////////////////////////////////////////////////////////////////
 
 

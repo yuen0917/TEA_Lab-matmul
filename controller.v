@@ -1,4 +1,68 @@
 `timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company:
+// Engineer:
+//
+// Create Date: 2025/12/29 23:35:49
+// Design Name:
+// Module Name: controller
+// Project Name:
+// Target Devices:
+// Tool Versions:
+// Description:
+//
+// Dependencies:
+//
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+//   This controller schedules BRAM reads, PE accumulation, and BRAM write-back for
+//   a group-based complex dot-product / matmul datapath.
+//
+//   High-level operation:
+//   - Data is processed in "groups". Each group consists of VETOR_LEN (=8) elements.
+//   - For each group, the controller reads 8 consecutive 32-bit words from the input/weight BRAMs,
+//     enables the processing elements (PEs) to accumulate results, then writes the final 64-bit
+//     accumulated outputs into the output BRAMs.
+//
+//   BRAM read (Port A) behavior:
+//   - Port A is used as read-only for all input/weight BRAMs (WE=0).
+//   - One shared address bram_addr_a is broadcast to multiple 32-bit BRAMs (R0i/I0i/R1i/I1i/WR/WI),
+//     so all inputs and weights must be aligned at the same address.
+//   - Addressing uses byte addressing:
+//       bram_addr_a = (count << 2) + (outer_count << 5)
+//     where count = 0..7 selects an element within the group (step = 4 bytes),
+//     and outer_count selects the group base (group stride = 8 words = 32 bytes).
+//     Therefore, element i of group g is read from address: 32*g + 4*i.
+//
+//   PE control:
+//   - en_pe is asserted during COMPUTE to enable accumulation.
+//   - When en_pe is deasserted, the PE modules clear their internal accumulators (per PE design).
+//   - A READY state is inserted before COMPUTE to allow BRAM read latency and data stabilization.
+//
+//   BRAM write-back behavior (64-bit output BRAMs):
+//   - Output BRAMs use byte addressing with 64-bit words (8 bytes per entry).
+//   - The controller writes outputs in two phases:
+//       * WRITE_BACK_0: writes output stream 0 (R0/I0) via Port B (bram_we_b = 8'hFF).
+//       * WRITE_BACK_1: writes output stream 1 (R1/I1) via Port C (bram_we_c = 8'hFF).
+//   - Write addresses are derived from the (delayed) group counter:
+//       bram_addr_b = temp_outer_count[1] << 3
+//       bram_addr_c = temp_outer_count[1] << 3
+//     i.e., output entry k is written at address 8*k.
+//
+//   FSM summary:
+//   - IDLE   : wait for start.
+//   - READY  : enable BRAM reads, prime the pipeline.
+//   - COMPUTE: iterate count=0..VETOR_LEN-1 with en_pe=1 to accumulate a group.
+//   - WRITE_BACK_0 / WRITE_BACK_1: write accumulated results to output BRAMs.
+//   - SHIFT  : prepare next group; asserts 'valid' for test/observation.
+//   - FIN    : asserts 'finish' for one clock cycle, then returns to IDLE.
+//
+//   Notes:
+//   - 'finish' is a one-cycle pulse when the FSM enters FIN.
+//   - The second output stream may be time-skewed relative to the first (e.g., due to PE chaining),
+//     so write-back is separated into two states to match output timing.
+//////////////////////////////////////////////////////////////////////////////////
 
 module controller#(
     parameter DATA_WIDTH_I = 32,
@@ -112,10 +176,10 @@ module controller#(
             // addr_c_temp[1] <= 32'b0;
 
             //bram_en_b <= 0;
-            bram_we_b <= 0;
+            bram_we_b   <= 0;
             bram_addr_b <= 0;
             //bram_en_c <= 0;
-            bram_we_c <= 0;
+            bram_we_c   <= 0;
             bram_addr_c <= 0;
         end else begin
             // en_b_temp[1] <= en_b_temp[0];
@@ -127,11 +191,11 @@ module controller#(
             // addr_c_temp[1] <= addr_c_temp[0];
 
             //bram_en_b <= en_b_temp[1];
-            bram_we_b <= we_b_temp[0];
+            bram_we_b   <= we_b_temp[0];
             bram_addr_b <= addr_b_temp[0];
 
             //bram_en_c <= en_c_temp[1];
-            bram_we_c <= we_c_temp[0];
+            bram_we_c   <= we_c_temp[0];
             bram_addr_c <= addr_c_temp[0];
         end
     end
@@ -242,7 +306,7 @@ module controller#(
             bram_en_a    <= 1;
             bram_we_a    <= 4'b0;
 
-            bram_en_b    <= 1;    /// 0
+            bram_en_b    <= 1;    // 0
             we_b_temp[0] <= 8'b0;
 
             bram_en_c    <= 1;  // 0
