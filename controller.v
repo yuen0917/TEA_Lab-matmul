@@ -39,12 +39,14 @@
 //   - en_pe is asserted during COMPUTE to enable accumulation.
 //   - When en_pe is deasserted, the PE modules clear their internal accumulators (per PE design).
 //   - A READY state is inserted before COMPUTE to allow BRAM read latency and data stabilization.
+//   - en_pe / bram_addr_b,c / bram_we_b,c are currently delayed one cycle (the second-stage delay regs are commented out); if two-stage delay is restored later, update this note.
 //
 //   BRAM write-back behavior (64-bit output BRAMs):
 //   - Output BRAMs use byte addressing with 64-bit words (8 bytes per entry).
 //   - The controller writes outputs in two phases:
 //       * WRITE_BACK_0: writes output stream 0 (R0/I0) via Port B (bram_we_b = 8'hFF).
 //       * WRITE_BACK_1: writes output stream 1 (R1/I1) via Port C (bram_we_c = 8'hFF).
+//     The second output stream may be time-skewed relative to the first, so write-back is split across two states.
 //   - Write addresses are derived from the (delayed) group counter:
 //       bram_addr_b = temp_outer_count[1] << 3
 //       bram_addr_c = temp_outer_count[1] << 3
@@ -57,11 +59,13 @@
 //   - WRITE_BACK_0 / WRITE_BACK_1: write accumulated results to output BRAMs.
 //   - SHIFT  : prepare next group; asserts 'valid' for test/observation.
 //   - FIN    : asserts 'finish' for one clock cycle, then returns to IDLE.
+//   - valid is asserted only in SHIFT for one cycle; finish is a one-cycle pulse in FIN.
 //
 //   Notes:
 //   - 'finish' is a one-cycle pulse when the FSM enters FIN.
 //   - The second output stream may be time-skewed relative to the first (e.g., due to PE chaining),
 //     so write-back is separated into two states to match output timing.
+//   - outer_count is 9 bits; with NUM_GROUP=257, groups are indexed 0..256 (total 257 groups) and FIN is reached at 256.
 //////////////////////////////////////////////////////////////////////////////////
 
 module controller#(
